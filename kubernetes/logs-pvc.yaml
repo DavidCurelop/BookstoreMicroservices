@@ -1,0 +1,31 @@
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: efs-sc
+provisioner: efs.csi.aws.com
+---
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: bookstore-logs-pv
+spec:
+  capacity:
+    storage: 5Gi
+  volumeMode: Filesystem
+  accessModes: [ReadWriteMany]
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: efs-sc
+  csi:
+    driver: efs.csi.aws.com
+    volumeHandle: fs-0889aa631e63ec350::fsap-074d349f24fefb3bf
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: bookstore-logs-pvc
+spec:
+  accessModes: [ReadWriteMany]
+  storageClassName: efs-sc
+  volumeName: bookstore-logs-pv
+  resources:
+    requests: { storage: 5Gi }

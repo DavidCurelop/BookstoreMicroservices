@@ -1,0 +1,58 @@
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+!.env.aws.example
+*.pem
+*.key
+.aws/
+
+# Archives
+*.rar
+*.zip
+*.7z
+
+# Logs
+logs/
+*.log
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+.claude/settings.local.json
+
+# Office temporary lock files
+~$*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Build outputs
+dist/
+build/
+.out/
+.next/
+coverage/
+
+# Local container data
+docker-data/
+
+# Compose local overrides
+docker-compose.override.yml
+compose.override.yaml
+
+# RDS bootstrap credentials
+database/rds/bootstrap.env
+
+# Course documents (kept outside the repository)
+docs/

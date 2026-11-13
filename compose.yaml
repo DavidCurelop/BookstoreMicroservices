@@ -1,0 +1,196 @@
+# Local environment: PostgreSQL, database bootstrap, backend and frontend.
+#
+# Usage: docker compose up --build
+
+services:
+  postgres:
+    image: ${POSTGRES_IMAGE:?POSTGRES_IMAGE is required}
+    restart: unless-stopped
+
+    # The official image expects its own variable names
+    environment:
+      POSTGRES_DB: ${DB_NAME:?DB_NAME is required}
+      POSTGRES_USER: ${DB_ADMIN_USER:?DB_ADMIN_USER is required}
+      POSTGRES_PASSWORD: ${DB_ADMIN_PASSWORD:?DB_ADMIN_PASSWORD is required}
+
+    ports:
+      - "${POSTGRES_HOST_PORT:?POSTGRES_HOST_PORT is required}:5432"
+
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+    networks:
+      - back-tier
+
+  # One-shot container: creates roles, schema, grants and seed, then exits
+  bootstrap:
+    image: ${BOOTSTRAP_IMAGE:?BOOTSTRAP_IMAGE is required}
+    restart: "no"
+
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+    environment:
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_NAME: ${DB_NAME:?DB_NAME is required}
+
+      DB_ADMIN_USER: ${DB_ADMIN_USER:?DB_ADMIN_USER is required}
+      DB_ADMIN_PASSWORD: ${DB_ADMIN_PASSWORD:?DB_ADMIN_PASSWORD is required}
+
+      APP_DB_USER: ${APP_DB_USER:?APP_DB_USER is required}
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?APP_DB_PASSWORD is required}
+
+      INGEST_DB_USER: ${INGEST_DB_USER:?INGEST_DB_USER is required}
+      INGEST_DB_PASSWORD: ${INGEST_DB_PASSWORD:?INGEST_DB_PASSWORD is required}
+
+      PGSSLMODE: disable
+
+    volumes:
+      - ./database:/database:ro
+
+    working_dir: /database/rds
+
+    entrypoint:
+      - /bin/bash
+      - ./bootstrap.sh
+
+    networks:
+      - back-tier
+
+  backend:
+    image: ${IMAGE_REGISTRY:?IMAGE_REGISTRY is required}/bookstore-backend:${IMAGE_TAG:?IMAGE_TAG is required}
+
+    build:
+      context: ./backend
+      args:
+        NODE_IMAGE: ${NODE_IMAGE:?NODE_IMAGE is required}
+
+    restart: unless-stopped
+
+    environment:
+      NODE_ENV: ${NODE_ENV:?NODE_ENV is required}
+      SERVICE_NAME: ${SERVICE_NAME:?SERVICE_NAME is required}
+      PORT: ${PORT:?PORT is required}
+      API_BASE_PATH: ${API_BASE_PATH:?API_BASE_PATH is required}
+      CORS_ORIGINS: ${CORS_ORIGINS:?CORS_ORIGINS is required}
+
+      BOOKS_DEFAULT_LIMIT: ${BOOKS_DEFAULT_LIMIT:?BOOKS_DEFAULT_LIMIT is required}
+      BOOKS_MAX_LIMIT: ${BOOKS_MAX_LIMIT:?BOOKS_MAX_LIMIT is required}
+
+      ORDERS_MAX_DISTINCT_ITEMS: ${ORDERS_MAX_DISTINCT_ITEMS:?ORDERS_MAX_DISTINCT_ITEMS is required}
+      ORDERS_MAX_QUANTITY_PER_ITEM: ${ORDERS_MAX_QUANTITY_PER_ITEM:?ORDERS_MAX_QUANTITY_PER_ITEM is required}
+
+      HTTP_TRUST_PROXY_HOPS: ${HTTP_TRUST_PROXY_HOPS:?HTTP_TRUST_PROXY_HOPS is required}
+      HTTP_JSON_BODY_LIMIT: ${HTTP_JSON_BODY_LIMIT:?HTTP_JSON_BODY_LIMIT is required}
+
+      ACCESS_LOG_ENABLED: ${ACCESS_LOG_ENABLED:?ACCESS_LOG_ENABLED is required}
+      ACCESS_LOG_EXCLUDE_PATHS: ${ACCESS_LOG_EXCLUDE_PATHS:?ACCESS_LOG_EXCLUDE_PATHS is required}
+      ACCESS_LOG_MAX_FIELD_LENGTH: ${ACCESS_LOG_MAX_FIELD_LENGTH:?ACCESS_LOG_MAX_FIELD_LENGTH is required}
+      ACCESS_LOG_REQUEST_ID_HEADER: ${ACCESS_LOG_REQUEST_ID_HEADER:?ACCESS_LOG_REQUEST_ID_HEADER is required}
+
+      CLICKSTREAM_FILE_ENABLED: ${CLICKSTREAM_FILE_ENABLED:?CLICKSTREAM_FILE_ENABLED is required}
+      CLICKSTREAM_FILE_PATH: ${CLICKSTREAM_FILE_PATH:?CLICKSTREAM_FILE_PATH is required}
+
+      # Runtime database identity (least privilege, never the admin role)
+      DB_HOST: ${DB_HOST:?DB_HOST is required}
+      DB_PORT: ${DB_PORT:?DB_PORT is required}
+      DB_NAME: ${DB_NAME:?DB_NAME is required}
+      DB_USER: ${APP_DB_USER:?APP_DB_USER is required}
+      DB_PASSWORD: ${APP_DB_PASSWORD:?APP_DB_PASSWORD is required}
+
+      DB_SSL: ${DB_SSL:?DB_SSL is required}
+      DB_SSL_REJECT_UNAUTHORIZED: ${DB_SSL_REJECT_UNAUTHORIZED:?DB_SSL_REJECT_UNAUTHORIZED is required}
+
+      DB_POOL_MAX: ${DB_POOL_MAX:?DB_POOL_MAX is required}
+      DB_IDLE_TIMEOUT_MS: ${DB_IDLE_TIMEOUT_MS:?DB_IDLE_TIMEOUT_MS is required}
+      DB_CONNECTION_TIMEOUT_MS: ${DB_CONNECTION_TIMEOUT_MS:?DB_CONNECTION_TIMEOUT_MS is required}
+
+      AUTH_JWT_SECRET: ${AUTH_JWT_SECRET:?AUTH_JWT_SECRET is required}
+      AUTH_JWT_ALGORITHM: ${AUTH_JWT_ALGORITHM:?AUTH_JWT_ALGORITHM is required}
+      AUTH_JWT_ISSUER: ${AUTH_JWT_ISSUER:?AUTH_JWT_ISSUER is required}
+      AUTH_JWT_AUDIENCE: ${AUTH_JWT_AUDIENCE:?AUTH_JWT_AUDIENCE is required}
+      AUTH_TOKEN_TTL_SECONDS: ${AUTH_TOKEN_TTL_SECONDS:?AUTH_TOKEN_TTL_SECONDS is required}
+
+      AUTH_COOKIE_NAME: ${AUTH_COOKIE_NAME:?AUTH_COOKIE_NAME is required}
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:?AUTH_COOKIE_SECURE is required}
+      AUTH_COOKIE_SAME_SITE: ${AUTH_COOKIE_SAME_SITE:?AUTH_COOKIE_SAME_SITE is required}
+      AUTH_COOKIE_PATH: ${AUTH_COOKIE_PATH:?AUTH_COOKIE_PATH is required}
+
+    ports:
+      - "${BACKEND_HOST_PORT:?BACKEND_HOST_PORT is required}:${PORT:?PORT is required}"
+
+    volumes:
+      - clickstream_logs:/usr/src/app/logs
+
+    # The backend starts only after the database has been bootstrapped
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -q --spider http://localhost:$$PORT/health"
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+    init: true
+
+    networks:
+      - front-tier
+      - back-tier
+
+  frontend:
+    image: ${IMAGE_REGISTRY:?IMAGE_REGISTRY is required}/bookstore-frontend:${IMAGE_TAG:?IMAGE_TAG is required}
+
+    build:
+      context: ./frontend
+      args:
+        NODE_IMAGE: ${NODE_IMAGE:?NODE_IMAGE is required}
+        NGINX_IMAGE: ${NGINX_IMAGE:?NGINX_IMAGE is required}
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:?VITE_API_BASE_URL is required}
+        VITE_API_PREFIX: ${API_PROXY_PREFIX:?API_PROXY_PREFIX is required}
+        VITE_CURRENCY_LOCALE: ${VITE_CURRENCY_LOCALE:?VITE_CURRENCY_LOCALE is required}
+        VITE_CURRENCY_CODE: ${VITE_CURRENCY_CODE:?VITE_CURRENCY_CODE is required}
+
+    restart: unless-stopped
+
+    environment:
+      NGINX_PORT: ${NGINX_PORT:?NGINX_PORT is required}
+      API_PROXY_PREFIX: ${API_PROXY_PREFIX:?API_PROXY_PREFIX is required}
+      PROXY_PASS: ${PROXY_PASS:?PROXY_PASS is required}
+
+    ports:
+      - "${FRONTEND_HOST_PORT:?FRONTEND_HOST_PORT is required}:${NGINX_PORT:?NGINX_PORT is required}"
+
+    depends_on:
+      backend:
+        condition: service_healthy
+
+    networks:
+      - front-tier
+
+volumes:
+  postgres_data:
+  clickstream_logs:
+
+networks:
+  front-tier:
+  back-tier:

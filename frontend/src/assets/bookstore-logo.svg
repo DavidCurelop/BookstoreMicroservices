@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     viewBox="0 0 300 96"
+     role="img"
+     aria-labelledby="title desc">
+  <title id="title">BookStore Co. BC logo</title>
+  <desc id="desc">Minimal BC monogram for a dark Lux-style navbar.</desc>
+
+  <!-- Transparent background -->
+
+  <!-- B -->
+  <path fill="#F8F9FA" d="
+    M28 14
+    H82
+    C106 14 121 25 121 43
+    C121 55 114 64 103 68
+    C117 72 126 83 126 98
+    H96
+    C96 88 89 82 77 82
+    H56
+    V96
+    H28
+    Z
+
+    M56 34
+    V55
+    H78
+    C87 55 92 51 92 44
+    C92 37 87 34 78 34
+    Z
+
+    M56 72
+    V82
+    H79
+    C88 82 94 79 96 72
+    Z
+  "/>
+
+  <!-- C -->
+  <path fill="#F8F9FA" d="
+    M242 28
+    C231 18 217 13 199 13
+    C164 13 138 39 138 55
+    C138 82 164 95 199 95
+    C218 95 233 89 244 78
+    L226 64
+    C219 71 210 74 200 74
+    C181 74 167 66 167 55
+    C167 44 181 34 200 34
+    C210 34 219 37 226 44
+    Z
+  "/>
+
+  <!-- Bookmark accent -->
+  <path fill="#919AA1" d="
+    M64 14
+    H79
+    V42
+    L71.5 35
+    L64 42
+    Z
+  "/>
+</svg>
