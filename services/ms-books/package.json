@@ -1,0 +1,21 @@
+{
+  "name": "ms-books",
+  "version": "8.1.0",
+  "main": "server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "license": "MIT",
+  "description": "BookStore Co. catalog and stock microservice (books schema only)",
+  "dependencies": {
+    "cors": "2.8.5",
+    "dotenv": "17.2.3",
+    "express": "5.1.0",
+    "pg": "8.16.3"
+  },
+  "engines": {
+    "node": ">=24.0.0"
+  }
+}

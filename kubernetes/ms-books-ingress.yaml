@@ -1,0 +1,41 @@
+# NGINX Ingress canary for /api/books: 90% -> ms-books-v1, 10% -> ms-books-v2.
+#
+# The canary Ingress must share host and path with the main one, so both use
+# no host and path /api/books. Only /api/books is routed: /internal/* stays
+# reachable just from inside the cluster.
+#
+# To change the split edit canary-weight (0-100) on the canary Ingress only.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ms-books-v1
+spec:
+  ingressClassName: nginx
+  rules:
+  - http:
+      paths:
+      - path: /api/books
+        pathType: Prefix
+        backend:
+          service:
+            name: ms-books-v1
+            port: { number: 5002 }
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ms-books-v2-canary
+  annotations:
+    nginx.ingress.kubernetes.io/canary: "true"
+    nginx.ingress.kubernetes.io/canary-weight: "10"
+spec:
+  ingressClassName: nginx
+  rules:
+  - http:
+      paths:
+      - path: /api/books
+        pathType: Prefix
+        backend:
+          service:
+            name: ms-books-v2
+            port: { number: 5002 }
