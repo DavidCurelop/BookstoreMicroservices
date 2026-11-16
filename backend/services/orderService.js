@@ -75,6 +75,9 @@ export const placeOrder = async ({ customerId, items }) =>
         {
           orderId: order.order_id,
           bookId: book.book_id,
+          isbn: book.isbn,
+          title: book.title,
+          author: book.author,
           quantity: item.quantity,
           unitPrice: book.price,
         },

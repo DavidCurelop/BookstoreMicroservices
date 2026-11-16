@@ -14,7 +14,7 @@ const CUSTOMER_COLUMNS = `
 export const findCustomerByEmail = async (email, executor = pool) => {
   const query = `
     SELECT ${CUSTOMER_COLUMNS}
-    FROM customers
+    FROM auth.customers
     WHERE LOWER(BTRIM(email)) = LOWER(BTRIM($1))
       AND deleted_at IS NULL
     LIMIT 1
@@ -27,7 +27,7 @@ export const findCustomerByEmail = async (email, executor = pool) => {
 export const findCustomerById = async (customerId, executor = pool) => {
   const query = `
     SELECT ${CUSTOMER_COLUMNS}
-    FROM customers
+    FROM auth.customers
     WHERE customer_id = $1
       AND deleted_at IS NULL
     LIMIT 1

@@ -1,4 +1,4 @@
-INSERT INTO books (
+INSERT INTO books.books (
   isbn, title, author, description, category, publisher,
   publication_year, price, stock, image
 )
@@ -17,7 +17,7 @@ VALUES
   ('9780134494166', 'Clean Architecture', 'Robert C. Martin', 'Architectural principles for creating maintainable software systems.', 'Software Architecture', 'Pearson', 2017, 154900.00, 11, NULL)
 ON CONFLICT (isbn) DO NOTHING;
 
-INSERT INTO customers (
+INSERT INTO auth.customers (
   customer_id, first_name, last_name, email, city, country
 )
 VALUES

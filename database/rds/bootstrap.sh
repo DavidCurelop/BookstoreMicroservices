@@ -101,6 +101,15 @@ fi
 : "${APP_DB_USER:=bookstore_app}"
 : "${APP_DB_PASSWORD:?APP_DB_PASSWORD is required}"
 
+: "${MS_AUTH_DB_USER:=ms_auth_role}"
+: "${MS_AUTH_DB_PASSWORD:=${APP_DB_PASSWORD}}"
+
+: "${MS_BOOKS_DB_USER:=ms_books_role}"
+: "${MS_BOOKS_DB_PASSWORD:=${APP_DB_PASSWORD}}"
+
+: "${MS_ORDERS_DB_USER:=ms_orders_role}"
+: "${MS_ORDERS_DB_PASSWORD:=${APP_DB_PASSWORD}}"
+
 : "${INGEST_DB_USER:=bookstore_ingest}"
 : "${INGEST_DB_PASSWORD:?INGEST_DB_PASSWORD is required}"
 
@@ -114,6 +123,9 @@ fi
 for secret in \
     "${DB_ADMIN_PASSWORD}" \
     "${APP_DB_PASSWORD}" \
+    "${MS_AUTH_DB_PASSWORD}" \
+    "${MS_BOOKS_DB_PASSWORD}" \
+    "${MS_ORDERS_DB_PASSWORD}" \
     "${INGEST_DB_PASSWORD}"
 do
 
@@ -178,6 +190,12 @@ log "Creating or reconciling runtime roles"
 psql \
     -X \
     -v ON_ERROR_STOP=1 \
+    -v auth_user="${MS_AUTH_DB_USER}" \
+    -v auth_password="${MS_AUTH_DB_PASSWORD}" \
+    -v books_user="${MS_BOOKS_DB_USER}" \
+    -v books_password="${MS_BOOKS_DB_PASSWORD}" \
+    -v orders_user="${MS_ORDERS_DB_USER}" \
+    -v orders_password="${MS_ORDERS_DB_PASSWORD}" \
     -v app_user="${APP_DB_USER}" \
     -v app_password="${APP_DB_PASSWORD}" \
     -v ingest_user="${INGEST_DB_USER}" \
@@ -204,6 +222,9 @@ psql \
     -X \
     -v ON_ERROR_STOP=1 \
     -v db_name="${DB_NAME}" \
+    -v auth_user="${MS_AUTH_DB_USER}" \
+    -v books_user="${MS_BOOKS_DB_USER}" \
+    -v orders_user="${MS_ORDERS_DB_USER}" \
     -v app_user="${APP_DB_USER}" \
     -v ingest_user="${INGEST_DB_USER}" \
     -f "${GRANTS_SQL}"
@@ -227,6 +248,9 @@ log "Verifying database deployment"
 psql \
     -X \
     -v ON_ERROR_STOP=1 \
+    -v auth_user="${MS_AUTH_DB_USER}" \
+    -v books_user="${MS_BOOKS_DB_USER}" \
+    -v orders_user="${MS_ORDERS_DB_USER}" \
     -v app_user="${APP_DB_USER}" \
     -v ingest_user="${INGEST_DB_USER}" \
     -f "${VERIFY_SQL}"

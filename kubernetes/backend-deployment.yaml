@@ -18,6 +18,21 @@ spec:
         whenUnsatisfiable: ScheduleAnyway
         labelSelector:
           matchLabels: { app: bookstore-backend }
+      initContainers:
+      - name: wait-for-db
+        image: postgres:17-alpine
+        envFrom:
+        - secretRef: { name: bookstore-db }
+        command:
+        - sh
+        - -c
+        - |
+          until pg_isready -h "$DB_HOST" -p "${DB_PORT:-5432}" -U "$DB_USER" -d "$DB_NAME" && \
+            PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "${DB_PORT:-5432}" -U "$DB_USER" -d "$DB_NAME" -tAc \
+            "SELECT 1 FROM information_schema.tables WHERE table_schema = 'auth' AND table_name = 'customers'" | grep -q 1; do
+            echo "Waiting for RDS PostgreSQL and auth schema initialization..."
+            sleep 2
+          done
       containers:
       - name: bookstore-backend
         image: 950582354349.dkr.ecr.us-east-1.amazonaws.com/bookstore-backend:8.1.0
@@ -34,7 +49,7 @@ spec:
           requests: { cpu: 100m, memory: 256Mi }
           limits: { memory: 512Mi }
         readinessProbe:
-          tcpSocket: { port: 5001 }
+          httpGet: { path: /health, port: 5001 }
         livenessProbe:
           tcpSocket: { port: 5001 }
       volumes:

@@ -5,7 +5,7 @@ export const createOrderRecord = async (
   executor
 ) => {
   const query = `
-    INSERT INTO orders (
+    INSERT INTO orders.orders (
       customer_id,
       order_status,
       total_amount
@@ -24,21 +24,27 @@ export const createOrderRecord = async (
 };
 
 export const createOrderItem = async (
-  { orderId, bookId, quantity, unitPrice },
+  { orderId, bookId, isbn, title, author, quantity, unitPrice },
   executor
 ) => {
   const query = `
-    INSERT INTO order_items (
+    INSERT INTO orders.order_items (
       order_id,
       book_id,
+      isbn,
+      title,
+      author,
       quantity,
       unit_price
     )
-    VALUES ($1, $2, $3, $4)
+    VALUES ($1, $2, $3, $4, $5, $6, $7)
     RETURNING
       order_item_id,
       order_id,
       book_id,
+      isbn,
+      title,
+      author,
       quantity,
       unit_price,
       line_total
@@ -47,6 +53,9 @@ export const createOrderItem = async (
   const { rows } = await executor.query(query, [
     orderId,
     bookId,
+    isbn,
+    title,
+    author,
     quantity,
     unitPrice,
   ]);
@@ -56,10 +65,10 @@ export const createOrderItem = async (
 
 export const recalculateOrderTotal = async (orderId, executor) => {
   const query = `
-    UPDATE orders
+    UPDATE orders.orders
     SET total_amount = (
       SELECT COALESCE(SUM(line_total), 0)
-      FROM order_items
+      FROM orders.order_items
       WHERE order_id = $1
     )
     WHERE order_id = $1
@@ -86,8 +95,8 @@ export const findOrdersByCustomerId = async (
       o.total_amount,
       o.order_timestamp,
       COALESCE(SUM(oi.quantity), 0)::INTEGER AS total_quantity
-    FROM orders o
-    LEFT JOIN order_items oi
+    FROM orders.orders o
+    LEFT JOIN orders.order_items oi
       ON oi.order_id = o.order_id
     WHERE o.customer_id = $1
       AND o.deleted_at IS NULL
@@ -116,8 +125,8 @@ export const findOrderByIdForCustomer = async (
       o.total_amount,
       o.order_timestamp,
       COALESCE(SUM(oi.quantity), 0)::INTEGER AS total_quantity
-    FROM orders o
-    LEFT JOIN order_items oi
+    FROM orders.orders o
+    LEFT JOIN orders.order_items oi
       ON oi.order_id = o.order_id
     WHERE o.order_id = $1
       AND o.customer_id = $2
@@ -142,15 +151,13 @@ export const findOrderItemsByOrderId = async (
     SELECT
       oi.order_item_id,
       oi.book_id,
-      b.isbn,
-      b.title,
-      b.author,
+      oi.isbn,
+      oi.title,
+      oi.author,
       oi.quantity,
       oi.unit_price,
       oi.line_total
-    FROM order_items oi
-    INNER JOIN books b
-      ON b.book_id = oi.book_id
+    FROM orders.order_items oi
     WHERE oi.order_id = $1
     ORDER BY
       oi.created_at ASC,

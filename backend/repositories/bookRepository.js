@@ -19,7 +19,7 @@ const BOOK_COLUMNS = `
 export const findBooks = async ({ limit, offset }, executor = pool) => {
   const query = `
     SELECT ${BOOK_COLUMNS}
-    FROM books
+    FROM books.books
     WHERE deleted_at IS NULL
     ORDER BY title ASC
     LIMIT $1 OFFSET $2
@@ -32,7 +32,7 @@ export const findBooks = async ({ limit, offset }, executor = pool) => {
 export const findBookByIsbn = async (isbn, executor = pool) => {
   const query = `
     SELECT ${BOOK_COLUMNS}
-    FROM books
+    FROM books.books
     WHERE isbn = $1
       AND deleted_at IS NULL
     LIMIT 1
@@ -48,9 +48,10 @@ export const findBooksByIdsForUpdate = async (bookIds, executor) => {
       book_id,
       isbn,
       title,
+      author,
       price,
       stock
-    FROM books
+    FROM books.books
     WHERE book_id = ANY($1::uuid[])
       AND deleted_at IS NULL
     ORDER BY book_id
@@ -66,7 +67,7 @@ export const decreaseBookStock = async (
   executor
 ) => {
   const query = `
-    UPDATE books
+    UPDATE books.books
     SET stock = stock - $2
     WHERE book_id = $1
       AND deleted_at IS NULL

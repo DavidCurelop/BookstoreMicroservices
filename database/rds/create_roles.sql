@@ -5,32 +5,32 @@
 --   exist and converge to the credentials supplied at runtime.
 --
 -- Required psql variables:
---   app_user
---   app_password
---   ingest_user
---   ingest_password
+--   auth_user, auth_password
+--   books_user, books_password
+--   orders_user, orders_password
+--   app_user, app_password
+--   ingest_user, ingest_password
 -- ============================================================
 
 \set ON_ERROR_STOP on
 
 SELECT format(
   CASE
-    WHEN EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'app_user')
+    WHEN EXISTS (SELECT 1 FROM pg_roles WHERE rolname = r.role_name)
       THEN 'ALTER ROLE %I LOGIN PASSWORD %L'
     ELSE 'CREATE ROLE %I LOGIN PASSWORD %L'
   END,
-  :'app_user',
-  :'app_password'
+  r.role_name,
+  r.role_password
 )
+FROM (
+  VALUES
+    (:'auth_user', :'auth_password'),
+    (:'books_user', :'books_password'),
+    (:'orders_user', :'orders_password'),
+    (:'app_user', :'app_password'),
+    (:'ingest_user', :'ingest_password')
+) AS r(role_name, role_password)
 \gexec
 
-SELECT format(
-  CASE
-    WHEN EXISTS (SELECT 1 FROM pg_roles WHERE rolname = :'ingest_user')
-      THEN 'ALTER ROLE %I LOGIN PASSWORD %L'
-    ELSE 'CREATE ROLE %I LOGIN PASSWORD %L'
-  END,
-  :'ingest_user',
-  :'ingest_password'
-)
-\gexec
+GRANT :"auth_user", :"books_user", :"orders_user" TO CURRENT_USER;
