@@ -1,0 +1,66 @@
+# ms-events (US-05): clickstream aggregator on :5004. It has no database; it
+# only appends to /usr/src/app/logs/clickstream.log on the shared EFS volume.
+#
+# bookstore-logs-pvc (efs-sc, ReadWriteMany, see logs-pvc.yaml) is mounted ONLY
+# in this Deployment. ms-auth, ms-books and ms-orders keep their own emptyDir
+# and ship events here through POST /internal/events/ingest.
+#
+# Replicas are spread across AZs; all of them append to the same file on EFS
+# (NFSv4.1, port 2049), so events from AZ-A and AZ-B end up in one clickstream.log.
+#
+# /internal/* is for pod sidecars through this Service and is NOT exposed by
+# the Ingress (see ms-events-ingress.yaml: only /api/events is routed).
+apiVersion: v1
+kind: Service
+metadata:
+  name: ms-events
+spec:
+  type: ClusterIP
+  selector:
+    app: ms-events
+  ports:
+  - port: 5004
+    targetPort: 5004
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ms-events
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ms-events
+  template:
+    metadata:
+      labels:
+        app: ms-events
+    spec:
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: topology.kubernetes.io/zone
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels: { app: ms-events }
+      containers:
+      - name: ms-events
+        image: 950582354349.dkr.ecr.us-east-1.amazonaws.com/bookstore-ms-events:8.1.0
+        ports:
+        - containerPort: 5004
+        env:
+        - { name: NODE_ENV, value: "production" }
+        - { name: PORT, value: "5004" }
+        - { name: CLICKSTREAM_FILE_PATH, value: "/usr/src/app/logs/clickstream.log" }
+        volumeMounts:
+        # Shared EFS volume: the only place in the cluster where it is mounted
+        - { name: logs-storage, mountPath: /usr/src/app/logs }
+        resources:
+          requests: { cpu: 100m, memory: 128Mi }
+          limits: { memory: 256Mi }
+        readinessProbe:
+          httpGet: { path: /health, port: 5004 }
+        livenessProbe:
+          tcpSocket: { port: 5004 }
+      volumes:
+      - name: logs-storage
+        persistentVolumeClaim: { claimName: bookstore-logs-pvc }
