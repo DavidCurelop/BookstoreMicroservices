@@ -1,0 +1,48 @@
+# Base manifest for ms-auth (US-01: DB bootstrap check only).
+# The application image and full configuration are delivered in US-02.
+# Secret "ms-auth-db" must provide: DB_HOST, DB_PORT, DB_NAME, DB_USER (ms_auth_role), DB_PASSWORD.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ms-auth
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ms-auth
+  template:
+    metadata:
+      labels:
+        app: ms-auth
+    spec:
+      initContainers:
+      # Blocks the Node.js server until RDS is reachable and the auth schema
+      # is initialized and readable by ms_auth_role.
+      - name: wait-for-db
+        image: postgres:17-alpine
+        envFrom:
+        - secretRef: { name: ms-auth-db }
+        command:
+        - sh
+        - -c
+        - |
+          until pg_isready -h "$DB_HOST" -p "${DB_PORT:-5432}" -U "$DB_USER" -d "$DB_NAME" && \
+            [ "$(PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "${DB_PORT:-5432}" -U "$DB_USER" -d "$DB_NAME" -tAc \
+            "SELECT has_table_privilege(current_user, 'auth.customers', 'SELECT')")" = "t" ]; do
+            echo "Waiting for RDS PostgreSQL and auth schema initialization..."
+            sleep 2
+          done
+      containers:
+      - name: ms-auth
+        image: 950582354349.dkr.ecr.us-east-1.amazonaws.com/bookstore-ms-auth:8.1.0
+        ports:
+        - containerPort: 5001
+        envFrom:
+        - secretRef: { name: ms-auth-db }
+        resources:
+          requests: { cpu: 100m, memory: 256Mi }
+          limits: { memory: 512Mi }
+        readinessProbe:
+          httpGet: { path: /health, port: 5001 }
+        livenessProbe:
+          tcpSocket: { port: 5001 }
