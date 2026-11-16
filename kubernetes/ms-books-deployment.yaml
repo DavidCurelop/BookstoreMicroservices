@@ -1,0 +1,161 @@
+# ms-books (US-03): catalog + stock microservice on :5002, books schema only.
+# Two versions run side by side so the Ingress can canary them (90% v1 / 10% v2),
+# see ms-books-ingress.yaml.
+#
+# Secret:
+#   ms-books-db -> DB_HOST, DB_PORT, DB_NAME, DB_USER (ms_books_role), DB_PASSWORD
+#
+# /internal/books/* is for in-cluster callers (ms-orders) through the Services
+# below and is NOT exposed by the Ingress.
+apiVersion: v1
+kind: Service
+metadata:
+  name: ms-books-v1
+spec:
+  type: ClusterIP
+  selector:
+    app: ms-books
+    version: v1
+  ports:
+  - port: 5002
+    targetPort: 5002
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ms-books-v2
+spec:
+  type: ClusterIP
+  selector:
+    app: ms-books
+    version: v2
+  ports:
+  - port: 5002
+    targetPort: 5002
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ms-books-v1
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ms-books
+      version: v1
+  template:
+    metadata:
+      labels:
+        app: ms-books
+        version: v1
+    spec:
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: topology.kubernetes.io/zone
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels: { app: ms-books, version: v1 }
+      initContainers:
+      # Blocks the Node.js server until RDS is reachable and the books schema
+      # is initialized and readable by ms_books_role.
+      - name: wait-for-db
+        image: postgres:17-alpine
+        envFrom:
+        - secretRef: { name: ms-books-db }
+        command:
+        - sh
+        - -c
+        - |
+          until pg_isready -h "$DB_HOST" -p "${DB_PORT:-5432}" -U "$DB_USER" -d "$DB_NAME" && \
+            [ "$(PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "${DB_PORT:-5432}" -U "$DB_USER" -d "$DB_NAME" -tAc \
+            "SELECT has_table_privilege(current_user, 'books.books', 'SELECT')")" = "t" ]; do
+            echo "Waiting for RDS PostgreSQL and books schema initialization..."
+            sleep 2
+          done
+      containers:
+      - name: ms-books
+        image: 950582354349.dkr.ecr.us-east-1.amazonaws.com/bookstore-ms-books:8.1.0
+        ports:
+        - containerPort: 5002
+        envFrom:
+        - secretRef: { name: ms-books-db }
+        env:
+        - { name: NODE_ENV, value: "production" }
+        - { name: PORT, value: "5002" }
+        - { name: SERVICE_NAME, value: "ms-books-v1" }
+        - { name: DB_SSL, value: "true" }
+        - { name: CLICKSTREAM_FILE_ENABLED, value: "true" }
+        - { name: CLICKSTREAM_FILE_PATH, value: "/var/log/clickstream/events.log" }
+        volumeMounts:
+        # Shared with the Clickstream sidecar through the pod emptyDir
+        - { name: clickstream, mountPath: /var/log/clickstream }
+        resources:
+          requests: { cpu: 100m, memory: 256Mi }
+          limits: { memory: 512Mi }
+        readinessProbe:
+          httpGet: { path: /health, port: 5002 }
+        livenessProbe:
+          tcpSocket: { port: 5002 }
+      volumes:
+      - name: clickstream
+        emptyDir: {}
+---
+# Canary version. It uses the same image tag as v1 until a candidate is built:
+# set the candidate tag here to start a real canary.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ms-books-v2
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: ms-books
+      version: v2
+  template:
+    metadata:
+      labels:
+        app: ms-books
+        version: v2
+    spec:
+      initContainers:
+      - name: wait-for-db
+        image: postgres:17-alpine
+        envFrom:
+        - secretRef: { name: ms-books-db }
+        command:
+        - sh
+        - -c
+        - |
+          until pg_isready -h "$DB_HOST" -p "${DB_PORT:-5432}" -U "$DB_USER" -d "$DB_NAME" && \
+            [ "$(PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "${DB_PORT:-5432}" -U "$DB_USER" -d "$DB_NAME" -tAc \
+            "SELECT has_table_privilege(current_user, 'books.books', 'SELECT')")" = "t" ]; do
+            echo "Waiting for RDS PostgreSQL and books schema initialization..."
+            sleep 2
+          done
+      containers:
+      - name: ms-books
+        image: 950582354349.dkr.ecr.us-east-1.amazonaws.com/bookstore-ms-books:8.1.0
+        ports:
+        - containerPort: 5002
+        envFrom:
+        - secretRef: { name: ms-books-db }
+        env:
+        - { name: NODE_ENV, value: "production" }
+        - { name: PORT, value: "5002" }
+        - { name: SERVICE_NAME, value: "ms-books-v2" }
+        - { name: DB_SSL, value: "true" }
+        - { name: CLICKSTREAM_FILE_ENABLED, value: "true" }
+        - { name: CLICKSTREAM_FILE_PATH, value: "/var/log/clickstream/events.log" }
+        volumeMounts:
+        - { name: clickstream, mountPath: /var/log/clickstream }
+        resources:
+          requests: { cpu: 100m, memory: 256Mi }
+          limits: { memory: 512Mi }
+        readinessProbe:
+          httpGet: { path: /health, port: 5002 }
+        livenessProbe:
+          tcpSocket: { port: 5002 }
+      volumes:
+      - name: clickstream
+        emptyDir: {}
