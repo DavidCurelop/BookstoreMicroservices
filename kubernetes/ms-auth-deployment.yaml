@@ -1,6 +1,23 @@
-# Base manifest for ms-auth (US-01: DB bootstrap check only).
-# The application image and full configuration are delivered in US-02.
-# Secret "ms-auth-db" must provide: DB_HOST, DB_PORT, DB_NAME, DB_USER (ms_auth_role), DB_PASSWORD.
+# ms-auth (US-02): authentication microservice on :5001.
+#
+# Secrets:
+#   ms-auth-db  -> DB_HOST, DB_PORT, DB_NAME, DB_USER (ms_auth_role), DB_PASSWORD
+#   ms-auth-jwt -> AUTH_JWT_SECRET (same value the monolith uses, so SPA cookies stay valid)
+#
+# The Ingress must route only /api/auth and /health to this Service.
+# /internal/* is for in-cluster callers (ms-orders) and must NOT be exposed.
+apiVersion: v1
+kind: Service
+metadata:
+  name: ms-auth
+spec:
+  type: ClusterIP
+  selector:
+    app: ms-auth
+  ports:
+  - port: 5001
+    targetPort: 5001
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -39,6 +56,18 @@ spec:
         - containerPort: 5001
         envFrom:
         - secretRef: { name: ms-auth-db }
+        env:
+        - name: AUTH_JWT_SECRET
+          valueFrom:
+            secretKeyRef: { name: ms-auth-jwt, key: AUTH_JWT_SECRET }
+        - { name: NODE_ENV, value: "production" }
+        - { name: PORT, value: "5001" }
+        - { name: DB_SSL, value: "true" }
+        - { name: CLICKSTREAM_FILE_ENABLED, value: "true" }
+        - { name: CLICKSTREAM_FILE_PATH, value: "/var/log/clickstream/events.log" }
+        volumeMounts:
+        # Shared with the Clickstream sidecar through the pod emptyDir
+        - { name: clickstream, mountPath: /var/log/clickstream }
         resources:
           requests: { cpu: 100m, memory: 256Mi }
           limits: { memory: 512Mi }
@@ -46,3 +75,6 @@ spec:
           httpGet: { path: /health, port: 5001 }
         livenessProbe:
           tcpSocket: { port: 5001 }
+      volumes:
+      - name: clickstream
+        emptyDir: {}
