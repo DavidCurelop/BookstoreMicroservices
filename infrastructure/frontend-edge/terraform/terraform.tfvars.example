@@ -1,0 +1,9 @@
+aws_region          = "us-east-1"
+frontend_bucket_name = "bookstore-frontend"
+cloudflare_zone_id  = "replace-with-cloudflare-zone-id"
+storefront_domain   = "bookstore.example.com"
+api_origin_domain   = "api-origin.bookstore.example.com"
+alb_dns_name        = "replace-with-public-alb-dns-name"
+
+login_requests_per_minute  = 10
+orders_requests_per_minute = 60

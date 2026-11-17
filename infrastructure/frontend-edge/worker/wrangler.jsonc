@@ -1,0 +1,20 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "bookstore-frontend-edge",
+  "main": "src/index.js",
+  "compatibility_date": "2025-11-16",
+  "workers_dev": false,
+  "route": {
+    "pattern": "bookstore.example.com/*",
+    "zone_name": "example.com"
+  },
+  "vars": {
+    "AWS_BUCKET": "bookstore-frontend",
+    "AWS_REGION": "us-east-1",
+    "API_ORIGIN": "https://api-origin.bookstore.example.com"
+  },
+  "observability": {
+    "enabled": true
+  },
+  "send_metrics": false
+}

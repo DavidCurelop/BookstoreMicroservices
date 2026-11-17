@@ -468,3 +468,128 @@ The EFS file should contain the original access-log lines, including
 Delivery is at least once: a retry after a network timeout can append a
 duplicate line if the receiver stored the batch but its response did not
 reach the sidecar.
+
+## 5. Frontend edge deployment
+
+The files in `infrastructure/frontend-edge/` provision a private S3 bucket
+and its read-only IAM policy, configure the Cloudflare DNS records and
+zone-level WAF/rate-limit rules, and provide a Worker that serves the SPA and
+proxies `/api/*` to the ALB. These steps configure the resources; they do not
+deploy them automatically.
+
+### 5.1 Prerequisites
+
+- An existing Cloudflare zone and API token with permission to edit DNS and
+  zone WAF rules.
+- AWS credentials with permission to manage S3 and IAM in the selected region.
+- A public ALB with an HTTPS listener and a valid ACM certificate.
+- A DNS-only hostname for that ALB, such as
+  `api-origin.bookstore.example.com`, included in the listener certificate.
+  The Worker uses this hostname for TLS validation; do not use the ALB's
+  default AWS hostname unless its certificate matches.
+- An origin protection plan so clients cannot bypass Cloudflare by calling
+  the public ALB directly. This Terraform configuration does not change the
+  ALB security group. Restrict its ingress to supported Cloudflare egress
+  addresses or enforce an origin-authentication mechanism, and verify that
+  the selected approach also permits Worker subrequests.
+- An available Cloudflare plan for the selected managed WAF rulesets and
+  rate-limit rules. Check current plan limits before applying.
+
+The storefront hostname is proxied through Cloudflare and routed to the
+Worker. The API origin hostname is DNS-only and points at the ALB. Do not
+route the origin hostname through the Worker, or API requests will loop.
+The DNS-only record does not protect the ALB: without origin protection, a
+caller can bypass the Cloudflare WAF and rate limits using the ALB endpoint.
+
+### 5.2 Provision S3, IAM, DNS and WAF
+
+Copy `terraform/terraform.tfvars.example` to `terraform/terraform.tfvars`,
+then set the bucket name, zone ID, public hostname, ALB DNS name and
+DNS-only API origin hostname. The `.tfvars` file is ignored by Git.
+
+Configure AWS credentials and set `CLOUDFLARE_API_TOKEN` in the shell. Then
+run:
+
+```bash
+cd infrastructure/frontend-edge/terraform
+terraform init
+terraform fmt -check
+terraform validate
+terraform plan
+```
+
+Review the plan before applying it:
+
+```bash
+terraform apply
+```
+
+The configuration enables S3 public-access blocking, server-side encryption,
+versioning and expiration of noncurrent object versions after 30 days. The
+Worker IAM policy allows object reads and bucket listing only for this bucket;
+listing is needed for S3 to return 404 for missing keys instead of 403. No
+access key is created or stored by Terraform.
+
+The ruleset resources manage Cloudflare's zone-level managed WAF and rate-limit
+entry points. If this zone already has rulesets in either phase, reconcile or
+import the existing entry point into Terraform before applying; do not create a
+second owner for the same phase.
+
+Create an access key for the output IAM user through AWS IAM after reviewing
+the Terraform apply. Store it in a secrets manager and enter it directly as
+Worker secrets; do not put it in `terraform.tfvars`, Terraform state,
+`wrangler.jsonc`, or source control. Rotate the key by updating the Worker
+secret before disabling the old key.
+
+### 5.3 Configure and deploy the Worker
+
+Edit `worker/wrangler.jsonc` with the actual storefront route and zone, bucket,
+AWS region and `API_ORIGIN`. `API_ORIGIN` must be the HTTPS origin hostname
+whose DNS-only record points to the ALB and whose ACM certificate matches.
+
+Install dependencies and configure the two required secrets:
+
+```bash
+cd infrastructure/frontend-edge/worker
+npm ci
+npx wrangler secret put AWS_ACCESS_KEY_ID
+npx wrangler secret put AWS_SECRET_ACCESS_KEY
+npm test
+npx wrangler deploy --dry-run
+npx wrangler deploy
+```
+
+For local development, copy `.dev.vars.example` to `.dev.vars` and replace
+the placeholder values. `.dev.vars` is excluded from Git.
+
+The Worker signs S3 requests and never makes the bucket public. It does not
+cache API responses and preserves request cookies, authorization headers and
+query strings. Hashed files under `assets/` receive a one-year immutable
+cache policy; other frontend files receive a one-day policy, while
+`index.html` is revalidated on each request. Unknown extensionless paths
+resolve to the SPA entry point; missing files with extensions remain 404s.
+
+### 5.4 Build and publish the frontend
+
+Build the site and upload its contents with the bucket name produced by
+Terraform:
+
+```bash
+cd frontend
+npm ci
+npm run build
+cd ..
+bash infrastructure/frontend-edge/deploy-frontend.sh <bucket-name>
+```
+
+The upload script publishes hashed bundles and images first, then other
+files, and uploads `index.html` last. It deliberately does not delete old
+bundles, so browser tabs running the previous release can still load their
+assets. Remove obsolete objects only after confirming that clients no longer
+need them.
+
+After deployment, verify the storefront over HTTPS, refresh a client route
+such as `/book/<isbn>`, request a missing image, and exercise login and order
+requests. Confirm that API responses have `Cache-Control: no-store`, that
+static resources use the expected cache headers, that the S3 bucket rejects
+public access, and that WAF/rate-limit behavior matches the Cloudflare plan.

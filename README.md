@@ -18,6 +18,8 @@ del curso, en este caso, para el proyecto final de la materia.
 │   ├── ms-books/
 │   ├── ms-orders/
 │   └── ms-events/
+├── infrastructure/
+│   └── frontend-edge/
 ├── kubernetes/
 ├── database/
 │   ├── schema.sql
@@ -239,8 +241,11 @@ El estado de los tres issues de infraestructura abiertos es:
   reintentos a `ms-events`. Falta verificar el comportamiento en un clúster
   EKS real y medir la entrega bajo fallos prolongados o presión de disco.
 - [US-07: S3, Cloudflare y WAF](https://github.com/DavidCurelop/BookstoreMicroservices/issues/7):
-  pendiente. El repositorio no contiene la configuración de S3 ni las reglas
-  de Cloudflare descritas en el issue.
+  hay una base de Terraform para el bucket privado, permisos de lectura,
+  DNS, WAF y límites de solicitudes, además de un Worker para servir la SPA
+  y reenviar `/api/*` al ALB. Falta configurar las cuentas y dominios reales,
+  aplicar los recursos, proteger el acceso directo al ALB y validar el flujo
+  desplegado.
 - [US-08: ALB, NGINX Ingress y alta disponibilidad](https://github.com/DavidCurelop/BookstoreMicroservices/issues/8):
   hay deployments y servicios de Kubernetes, además de rutas para libros,
   pedidos y eventos. Se añadieron la ruta de autenticación, configuración para
@@ -253,13 +258,10 @@ en el backend monolítico y el frontend servido desde Kubernetes. No debe
 tomarse como una guía completa para desplegar la arquitectura de microservicios
 ni como evidencia de que los recursos de AWS o Cloudflare ya están configurados.
 
-Para completar el despliegue, conviene resolver primero el ingreso a los
-servicios y la disponibilidad en EKS (US-08). El trabajo del sidecar (US-06)
-puede avanzar en paralelo, pero debe mantener el formato de eventos existente
-y evitar que el manejo de solicitudes de negocio dependa de escrituras remotas
-a EFS. La publicación del frontend en S3 y el enrutamiento de `/api/*` por
-Cloudflare (US-07) debe configurarse cuando el endpoint público de la API esté
-definido.
+La configuración inicial de US-07 está en `infrastructure/frontend-edge/`.
+No se han aplicado recursos de AWS o Cloudflare; el despliegue requiere los
+dominios, la zona de Cloudflare y el hostname HTTPS del ALB correspondientes
+al entorno.
 
 ## Requisitos
 

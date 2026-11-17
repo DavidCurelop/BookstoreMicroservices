@@ -10,6 +10,7 @@ pnpm-debug.log*
 .env.*
 !.env.example
 !.env.aws.example
+**/.dev.vars
 *.pem
 *.key
 .aws/
@@ -43,6 +44,13 @@ build/
 .out/
 .next/
 coverage/
+
+# Terraform state and provider data
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
 
 # Local container data
 docker-data/
