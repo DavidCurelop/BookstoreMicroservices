@@ -32,6 +32,9 @@ spec:
       labels:
         app: ms-auth
     spec:
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
       topologySpreadConstraints:
       - maxSkew: 1
         topologyKey: topology.kubernetes.io/zone
@@ -72,8 +75,7 @@ spec:
         - { name: CLICKSTREAM_FILE_ENABLED, value: "true" }
         - { name: CLICKSTREAM_FILE_PATH, value: "/var/log/clickstream/events.log" }
         volumeMounts:
-        # Shared with the Clickstream sidecar through the pod emptyDir
-        - { name: clickstream, mountPath: /var/log/clickstream }
+        - { name: clickstream-buffer, mountPath: /var/log/clickstream }
         resources:
           requests: { cpu: 100m, memory: 256Mi }
           limits: { memory: 512Mi }
@@ -81,6 +83,34 @@ spec:
           httpGet: { path: /health, port: 5001 }
         livenessProbe:
           tcpSocket: { port: 5001 }
+      - name: clickstream-sidecar
+        image: fluent/fluent-bit:3.2.10
+        args: ["--config=/fluent-bit/etc/fluent-bit.conf"]
+        volumeMounts:
+        - { name: clickstream-buffer, mountPath: /var/log/clickstream, readOnly: true }
+        - { name: clickstream-state, mountPath: /var/lib/clickstream }
+        - name: clickstream-sidecar-config
+          mountPath: /fluent-bit/etc/fluent-bit.conf
+          subPath: fluent-bit.conf
+          readOnly: true
+        resources:
+          requests: { cpu: 50m, memory: 64Mi }
+          limits: { memory: 256Mi }
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 1000
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
       volumes:
-      - name: clickstream
-        emptyDir: {}
+      - name: clickstream-buffer
+        emptyDir:
+          sizeLimit: 80Mi
+      - name: clickstream-state
+        emptyDir:
+          sizeLimit: 256Mi
+      - name: clickstream-sidecar-config
+        configMap:
+          name: clickstream-sidecar

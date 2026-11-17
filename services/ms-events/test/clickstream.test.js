@@ -1,0 +1,102 @@
+import assert from "node:assert/strict";
+import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import test from "node:test";
+
+const temporaryDirectory = await mkdtemp(join(tmpdir(), "bookstore-clickstream-"));
+const efsFile = join(temporaryDirectory, "efs", "clickstream.log");
+const bufferFile = join(temporaryDirectory, "buffer", "events.log");
+
+process.env.CLICKSTREAM_FILE_PATH = efsFile;
+process.env.CLICKSTREAM_BUFFER_PATH = bufferFile;
+
+const {
+  closeClickstreamBufferWriter,
+  initializeClickstreamBufferWriter,
+  writeClickstreamBufferLine,
+} = await import("../logging/clickstreamBufferWriter.js");
+const {
+  closeClickstreamFileWriter,
+  initializeClickstreamFileWriter,
+} = await import("../logging/clickstreamFileWriter.js");
+const { ingestEvents } = await import("../controllers/ingestController.js");
+
+test("rotates the local buffer and preserves sidecar log lines during ingestion", async () => {
+  await initializeClickstreamBufferWriter();
+  await initializeClickstreamFileWriter();
+
+  const firstLine = "x".repeat(6 * 1024 * 1024);
+  const secondLongLine = "y".repeat(6 * 1024 * 1024);
+  const secondLine = [
+    "schema_version=1",
+    "request_id=request-2",
+    "session_id=session-2",
+    "event_type=purchase",
+    "latency_ms=12",
+  ].join(" ");
+
+  writeClickstreamBufferLine(firstLine);
+  writeClickstreamBufferLine(secondLongLine);
+  writeClickstreamBufferLine(secondLine);
+  await closeClickstreamBufferWriter();
+
+  const bufferDirectory = join(temporaryDirectory, "buffer");
+  const bufferFiles = await readdir(bufferDirectory);
+  const rotatedFile = bufferFiles.find((file) => file.startsWith("events.log."));
+  assert.ok(rotatedFile, "the buffer should rotate after reaching 10 MiB");
+  assert.equal(await readFile(join(bufferDirectory, rotatedFile), "utf8"), `${firstLine}\n`);
+  assert.equal(
+    await readFile(bufferFile, "utf8"),
+    `${secondLongLine}\n${secondLine}\n`
+  );
+
+  let responseStatus;
+  const response = {
+    set() {},
+    status(status) {
+      responseStatus = status;
+      return this;
+    },
+    json(body) {
+      return body;
+    },
+  };
+
+  await ingestEvents(
+    {
+      body: [
+        { log: secondLine, timestamp: "2026-11-17T00:00:00Z" },
+        { log: "schema_version=1 event_type=login" },
+      ],
+    },
+    response
+  );
+
+  assert.equal(responseStatus, 200);
+  assert.equal(
+    await readFile(efsFile, "utf8"),
+    `${secondLine}\nschema_version=1 event_type=login\n`
+  );
+
+  await ingestEvents(
+    {
+      body: {
+        lines: ["schema_version=1 event_type=logout"],
+        records: [{ event_id: "structured-event" }],
+      },
+    },
+    response
+  );
+
+  assert.equal(
+    await readFile(efsFile, "utf8"),
+    `${secondLine}\nschema_version=1 event_type=login\nschema_version=1 event_type=logout\n{"event_id":"structured-event"}\n`
+  );
+});
+
+test.after(async () => {
+  await closeClickstreamFileWriter();
+  await closeClickstreamBufferWriter();
+  await rm(temporaryDirectory, { recursive: true, force: true });
+});

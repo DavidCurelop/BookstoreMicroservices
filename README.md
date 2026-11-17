@@ -235,9 +235,9 @@ despliegue de microservicios. Los servicios usan estos puertos:
 El estado de los tres issues de infraestructura abiertos es:
 
 - [US-06: sidecar de clickstream](https://github.com/DavidCurelop/BookstoreMicroservices/issues/6):
-  los deployments ya montan volúmenes `emptyDir` para los logs de varios
-  servicios y `ms-events` tiene un endpoint interno de ingesta. Aún faltan los
-  contenedores sidecar, la rotación de archivos y el envío con reintentos.
+  los deployments incluyen Fluent Bit, buffer local con rotación y envío con
+  reintentos a `ms-events`. Falta verificar el comportamiento en un clúster
+  EKS real y medir la entrega bajo fallos prolongados o presión de disco.
 - [US-07: S3, Cloudflare y WAF](https://github.com/DavidCurelop/BookstoreMicroservices/issues/7):
   pendiente. El repositorio no contiene la configuración de S3 ni las reglas
   de Cloudflare descritas en el issue.

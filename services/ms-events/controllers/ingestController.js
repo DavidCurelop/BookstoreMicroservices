@@ -33,6 +33,10 @@ const normalizeRecords = (records) => {
       throw invalid(`records[${index}] must be an object`);
     }
 
+    if (typeof record.log === "string") {
+      return toSingleLine(record.log);
+    }
+
     // JSON.stringify escapes line breaks, so the result is already one line
     return JSON.stringify(record);
   });
@@ -42,7 +46,8 @@ const normalizeRecords = (records) => {
 //   lines   -> already formatted clickstream lines (sidecar forwards them as is)
 //   records -> structured JSON records, stored as one JSON line each
 export const ingestEvents = async (req, res) => {
-  const { lines, records } = req.body ?? {};
+  const lines = req.body?.lines;
+  const records = Array.isArray(req.body) ? req.body : req.body?.records;
 
   if (lines === undefined && records === undefined) {
     throw invalid("Provide lines and/or records");

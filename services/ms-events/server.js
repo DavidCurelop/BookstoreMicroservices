@@ -9,6 +9,11 @@ import {
   initializeClickstreamFileWriter,
   isClickstreamFileAvailable,
 } from "./logging/clickstreamFileWriter.js";
+import {
+  closeClickstreamBufferWriter,
+  initializeClickstreamBufferWriter,
+  isClickstreamBufferAvailable,
+} from "./logging/clickstreamBufferWriter.js";
 import { accessLogger } from "./middleware/accessLogger.js";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
 import eventRoutes from "./routes/eventRoutes.js";
@@ -35,8 +40,12 @@ app.use(accessLogger);
 app.use(cors(corsOptions));
 
 app.get("/health", (req, res) => {
-  if (!isClickstreamFileAvailable()) {
-    throw new AppError("Clickstream file is not available", 503, "CLICKSTREAM_STORAGE_UNAVAILABLE");
+  if (!isClickstreamFileAvailable() || !isClickstreamBufferAvailable()) {
+    throw new AppError(
+      "Clickstream storage is not available",
+      503,
+      "CLICKSTREAM_STORAGE_UNAVAILABLE"
+    );
   }
 
   res.status(200).json({
@@ -57,6 +66,7 @@ let server;
 
 const startServer = async () => {
   await initializeClickstreamFileWriter();
+  await initializeClickstreamBufferWriter();
 
   server = app.listen(config.app.port, () => {
     logger.info("HTTP server started", { port: config.app.port });
@@ -73,6 +83,7 @@ const shutdown = async (signal) => {
   }
 
   await closeClickstreamFileWriter();
+  await closeClickstreamBufferWriter();
   logger.info("Shutdown completed", { signal });
   process.exit(0);
 };

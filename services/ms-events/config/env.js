@@ -1,4 +1,5 @@
 import "dotenv/config";
+import { resolve } from "node:path";
 
 // Only the variables ms-events really needs (no database, no JWT).
 
@@ -36,9 +37,21 @@ const clickstreamFilePath = read(
   "CLICKSTREAM_FILE_PATH",
   "/usr/src/app/logs/clickstream.log"
 );
+const clickstreamBufferPath = read(
+  "CLICKSTREAM_BUFFER_PATH",
+  "/var/log/clickstream/events.log"
+);
 
 if (!clickstreamFilePath.startsWith("/")) {
   throw new Error("CLICKSTREAM_FILE_PATH must be an absolute path");
+}
+
+if (!clickstreamBufferPath.startsWith("/")) {
+  throw new Error("CLICKSTREAM_BUFFER_PATH must be an absolute path");
+}
+
+if (resolve(clickstreamFilePath) === resolve(clickstreamBufferPath)) {
+  throw new Error("CLICKSTREAM_FILE_PATH and CLICKSTREAM_BUFFER_PATH must differ");
 }
 
 export const config = Object.freeze({
@@ -71,5 +84,8 @@ export const config = Object.freeze({
   }),
   clickstreamFile: Object.freeze({
     path: clickstreamFilePath,
+  }),
+  clickstreamBuffer: Object.freeze({
+    path: clickstreamBufferPath,
   }),
 });

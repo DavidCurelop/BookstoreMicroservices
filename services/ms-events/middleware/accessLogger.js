@@ -3,7 +3,7 @@ import { performance } from "node:perf_hooks";
 
 import { config } from "../config/env.js";
 import { EVENT_SCHEMA_VERSION } from "../config/events.js";
-import { writeClickstreamLine } from "../logging/clickstreamFileWriter.js";
+import { writeClickstreamBufferLine } from "../logging/clickstreamBufferWriter.js";
 
 const MONTH_NAMES = Object.freeze([
   "Jan",
@@ -151,10 +151,9 @@ const writeAccessLog = ({ req, res, startedAt, startedPerformance }) => {
 
   process.stdout.write(`${line}\n`);
 
-  // Only catalog_view / book_view events go to the clickstream file; internal
-  // stock calls and failed lookups stay in stdout.
+  // Behavior events go to the local buffer; the sidecar forwards them to EFS.
   if (req.behaviorEvent) {
-    writeClickstreamLine(line);
+    writeClickstreamBufferLine(line);
   }
 };
 

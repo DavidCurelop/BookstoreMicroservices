@@ -1,0 +1,40 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: clickstream-sidecar
+data:
+  fluent-bit.conf: |
+    [SERVICE]
+        Flush                     1
+        Log_Level                 info
+        Parsers_File              parsers.conf
+        storage.path              /var/lib/clickstream/storage
+        storage.sync              full
+        storage.checksum          off
+        storage.backlog.mem_limit 5M
+        storage.metrics           on
+
+    [INPUT]
+        Name                      tail
+        Tag                       clickstream
+        Path                      /var/log/clickstream/events.log,/var/log/clickstream/events.log.*
+        DB                        /var/lib/clickstream/tail.db
+        DB.Sync                   Normal
+        Read_from_Head            On
+        Refresh_Interval          1
+        Rotate_Wait               30
+        Skip_Empty_Lines          On
+        Skip_Long_Lines           On
+        storage.type              filesystem
+
+    [OUTPUT]
+        Name                      http
+        Match                     clickstream
+        Host                      ms-events
+        Port                      5004
+        URI                       /internal/events/ingest
+        Format                    json
+        Json_Date_Key             timestamp
+        Json_Date_Format          iso8601
+        Retry_Limit               False
+        Workers                   1

@@ -1,9 +1,9 @@
 # ms-events (US-05): clickstream aggregator on :5004. It has no database; it
-# only appends to /usr/src/app/logs/clickstream.log on the shared EFS volume.
+# appends accepted events to EFS and buffers its own public behavior events locally.
 #
 # bookstore-logs-pvc (efs-sc, ReadWriteMany, see logs-pvc.yaml) is mounted ONLY
-# in this Deployment. ms-auth, ms-books and ms-orders keep their own emptyDir
-# and ship events here through POST /internal/events/ingest.
+# in this Deployment. Other services ship events here through
+# POST /internal/events/ingest.
 #
 # Replicas are spread across AZs; all of them append to the same file on EFS
 # (NFSv4.1, port 2049), so events from AZ-A and AZ-B end up in one clickstream.log.
@@ -36,6 +36,9 @@ spec:
       labels:
         app: ms-events
     spec:
+      securityContext:
+        fsGroup: 1000
+        fsGroupChangePolicy: OnRootMismatch
       topologySpreadConstraints:
       - maxSkew: 1
         topologyKey: topology.kubernetes.io/zone
@@ -51,9 +54,12 @@ spec:
         - { name: NODE_ENV, value: "production" }
         - { name: PORT, value: "5004" }
         - { name: CLICKSTREAM_FILE_PATH, value: "/usr/src/app/logs/clickstream.log" }
+        - { name: CLICKSTREAM_BUFFER_PATH, value: "/var/log/clickstream/events.log" }
+        - { name: INGEST_JSON_BODY_LIMIT, value: "10mb" }
+        - { name: INGEST_MAX_BATCH_SIZE, value: "50000" }
         volumeMounts:
-        # Shared EFS volume: the only place in the cluster where it is mounted
         - { name: logs-storage, mountPath: /usr/src/app/logs }
+        - { name: clickstream-buffer, mountPath: /var/log/clickstream }
         resources:
           requests: { cpu: 100m, memory: 128Mi }
           limits: { memory: 256Mi }
@@ -61,6 +67,36 @@ spec:
           httpGet: { path: /health, port: 5004 }
         livenessProbe:
           tcpSocket: { port: 5004 }
+      - name: clickstream-sidecar
+        image: fluent/fluent-bit:3.2.10
+        args: ["--config=/fluent-bit/etc/fluent-bit.conf"]
+        volumeMounts:
+        - { name: clickstream-buffer, mountPath: /var/log/clickstream, readOnly: true }
+        - { name: clickstream-state, mountPath: /var/lib/clickstream }
+        - name: clickstream-sidecar-config
+          mountPath: /fluent-bit/etc/fluent-bit.conf
+          subPath: fluent-bit.conf
+          readOnly: true
+        resources:
+          requests: { cpu: 50m, memory: 64Mi }
+          limits: { memory: 256Mi }
+        securityContext:
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 1000
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          capabilities:
+            drop: ["ALL"]
       volumes:
       - name: logs-storage
         persistentVolumeClaim: { claimName: bookstore-logs-pvc }
+      - name: clickstream-buffer
+        emptyDir:
+          sizeLimit: 80Mi
+      - name: clickstream-state
+        emptyDir:
+          sizeLimit: 256Mi
+      - name: clickstream-sidecar-config
+        configMap:
+          name: clickstream-sidecar

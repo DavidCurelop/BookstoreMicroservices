@@ -391,6 +391,7 @@ environment-specific EFS identifiers.
 
 ```powershell
 kubectl apply -f kubernetes/logs-pvc.yaml
+kubectl apply -f kubernetes/clickstream-sidecar-config.yaml
 kubectl apply -f kubernetes/ms-auth-deployment.yaml
 kubectl apply -f kubernetes/ms-books-deployment.yaml
 kubectl apply -f kubernetes/ms-orders-deployment.yaml
@@ -431,3 +432,39 @@ Controller reconciles the Ingress. Verify the four public API paths through
 that hostname and confirm that `/internal/events/ingest` is not routed by
 either Ingress controller. A live EKS deployment is required to verify AWS
 target health, cross-zone placement, and end-to-end routing.
+
+### 4.4 Clickstream sidecar
+
+Each microservice pod runs Fluent Bit beside the application. The application
+writes behavior events to the pod's `clickstream-buffer` `emptyDir`; the
+sidecar mounts that directory read-only, tracks file offsets in its
+`clickstream-state` volume, and forwards batches to the internal
+`ms-events:5004/internal/events/ingest` endpoint. Fluent Bit keeps retrying
+failed deliveries and stores pending chunks on the state volume. The events
+service appends accepted lines to EFS. Its own public behavior events also
+pass through a local buffer and sidecar; internal ingestion requests are not
+written to that buffer, so they cannot create a forwarding loop.
+
+The application writers rotate the active file at 10 MiB and retain up to
+five rotated files per pod. The sidecar tails the active and rotated paths.
+Both the source files and retry state use pod-local ephemeral storage; they
+survive container restarts within the same pod, but not pod replacement.
+If the sidecar is unavailable long enough to exhaust the retained files or
+its storage volume, delivery cannot be guaranteed. Monitor pod ephemeral
+storage and Fluent Bit retry/buffer metrics in a running cluster.
+
+To confirm the rollout:
+
+```powershell
+kubectl get pods --all-namespaces
+kubectl logs deployment/ms-auth -c clickstream-sidecar
+kubectl logs deployment/ms-books-v1 -c clickstream-sidecar
+kubectl logs deployment/ms-orders -c clickstream-sidecar
+kubectl logs deployment/ms-events -c clickstream-sidecar
+```
+
+The EFS file should contain the original access-log lines, including
+`schema_version`, `request_id`, `session_id`, `event_type`, and `latency_ms`.
+Delivery is at least once: a retry after a network timeout can append a
+duplicate line if the receiver stored the batch but its response did not
+reach the sidecar.
