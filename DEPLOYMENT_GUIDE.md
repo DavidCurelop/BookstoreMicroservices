@@ -309,3 +309,125 @@ if ($vpcId) {
 }
 ```
 
+---
+
+## 4. Microservices on EKS
+
+The commands in this section deploy the Kubernetes configuration for the
+microservices. They do not create the VPC, EKS cluster, RDS instance, EFS file
+system, or AWS Load Balancer Controller. Those resources must already exist.
+The EKS cluster must have worker nodes in at least two Availability Zones,
+AWS Load Balancer Controller installed with the required IAM permissions, and
+Metrics Server available for CPU-based autoscaling.
+
+Run these commands from the repository root in PowerShell. Use an image tag
+that matches the `image:` fields in the Kubernetes manifests (`8.1.0` in the
+current files). The manifests currently reference ECR account
+`950582354349` in `us-east-1`; if the target account or region differs, update
+the image references before applying them.
+
+### 4.1 Build and publish the microservice images
+
+Create the ECR repositories once, then authenticate Docker:
+
+```powershell
+$accountId = (aws sts get-caller-identity --query Account --output text)
+$region = "us-east-1"
+$ecrRegistry = "$accountId.dkr.ecr.$region.amazonaws.com"
+$imageTag = "8.1.0"
+
+foreach ($service in @("ms-auth", "ms-books", "ms-orders", "ms-events")) {
+    aws ecr create-repository --repository-name "bookstore-$service" 2>$null
+}
+
+aws ecr get-login-password --region $region |
+    docker login --username AWS --password-stdin $ecrRegistry
+```
+
+Create a Buildx builder if one is not already configured, then build and push
+each image for both supported architectures:
+
+```powershell
+docker buildx create --name bookstore-builder --driver docker-container --use
+
+foreach ($service in @("ms-auth", "ms-books", "ms-orders", "ms-events")) {
+    docker buildx build `
+        --platform linux/amd64,linux/arm64 `
+        --tag "$ecrRegistry/bookstore-$service`:$imageTag" `
+        --push `
+        "services/$service"
+}
+```
+
+If the builder already exists, select it with
+`docker buildx use bookstore-builder` instead of creating it again.
+
+### 4.2 Install the in-cluster NGINX Ingress Controller
+
+The controller is installed as a `ClusterIP` service. The public ALB targets
+its pods directly; do not apply the legacy `kubernetes/nginx-service.yaml`,
+which creates a separate public load balancer for the old frontend.
+
+```powershell
+helm repo add ingress-nginx https://kubernetes.github.io/ingress-nginx
+helm repo update
+helm upgrade --install ingress-nginx ingress-nginx/ingress-nginx `
+    --namespace ingress-nginx `
+    --create-namespace `
+    --values kubernetes/ingress-nginx-values.yaml
+```
+
+The AWS Load Balancer Controller must be installed before applying the ALB
+Ingress. Its IAM role must allow it to manage load balancers, listeners,
+target groups, and security group rules in the cluster's VPC. Public subnets
+must be tagged for load balancers and span at least two Availability Zones.
+
+### 4.3 Apply the microservice manifests
+
+Create the database and JWT Kubernetes Secrets and configure the EFS
+PersistentVolume handle in `kubernetes/logs-pvc.yaml` for the target
+environment before applying the workloads. Do not commit credentials or
+environment-specific EFS identifiers.
+
+```powershell
+kubectl apply -f kubernetes/logs-pvc.yaml
+kubectl apply -f kubernetes/ms-auth-deployment.yaml
+kubectl apply -f kubernetes/ms-books-deployment.yaml
+kubectl apply -f kubernetes/ms-orders-deployment.yaml
+kubectl apply -f kubernetes/ms-events-deployment.yaml
+kubectl apply -f kubernetes/ms-auth-ingress.yaml
+kubectl apply -f kubernetes/ms-books-ingress.yaml
+kubectl apply -f kubernetes/ms-events-ingress.yaml
+kubectl apply -f kubernetes/ms-autoscaling.yaml
+kubectl apply -f kubernetes/alb-ingress-class.yaml
+kubectl apply -f kubernetes/public-alb-ingress.yaml
+```
+
+The ALB forwards requests to the in-cluster NGINX controller. NGINX exposes
+only `/api/auth`, `/api/books`, `/api/orders`, and `/api/events`; internal
+service paths such as `/internal/*` have no Ingress route. The books Ingress
+retains its 90/10 canary split.
+
+`topologySpreadConstraints` require matching nodes in two Availability Zones.
+If the cluster cannot satisfy that constraint, pods remain Pending instead of
+being scheduled in a single zone. HPA requires Metrics Server and uses a 70%
+CPU target; each deployment has at least two replicas and a disruption budget
+of one available pod.
+
+Check rollout status and the provisioned ALB:
+
+```powershell
+kubectl get pods,services,ingress,hpa,pdb --all-namespaces
+kubectl rollout status deployment/ms-auth
+kubectl rollout status deployment/ms-books-v1
+kubectl rollout status deployment/ms-books-v2
+kubectl rollout status deployment/ms-orders
+kubectl rollout status deployment/ms-events
+kubectl get ingress bookstore-public
+```
+
+The ALB hostname appears in the `ADDRESS` column after the AWS Load Balancer
+Controller reconciles the Ingress. Verify the four public API paths through
+that hostname and confirm that `/internal/events/ingest` is not routed by
+either Ingress controller. A live EKS deployment is required to verify AWS
+target health, cross-zone placement, and end-to-end routing.

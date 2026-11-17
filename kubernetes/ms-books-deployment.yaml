@@ -67,7 +67,7 @@ spec:
       topologySpreadConstraints:
       - maxSkew: 1
         topologyKey: topology.kubernetes.io/zone
-        whenUnsatisfiable: ScheduleAnyway
+        whenUnsatisfiable: DoNotSchedule
         labelSelector:
           matchLabels: { app: ms-books, version: v1 }
       initContainers:
@@ -133,6 +133,12 @@ spec:
         app: ms-books
         version: v2
     spec:
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: topology.kubernetes.io/zone
+        whenUnsatisfiable: DoNotSchedule
+        labelSelector:
+          matchLabels: { app: ms-books, version: v2 }
       initContainers:
       - name: wait-for-db
         image: postgres:17-alpine

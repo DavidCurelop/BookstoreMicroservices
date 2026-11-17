@@ -243,10 +243,10 @@ El estado de los tres issues de infraestructura abiertos es:
   de Cloudflare descritas en el issue.
 - [US-08: ALB, NGINX Ingress y alta disponibilidad](https://github.com/DavidCurelop/BookstoreMicroservices/issues/8):
   hay deployments y servicios de Kubernetes, además de rutas para libros,
-  pedidos y eventos. Faltan piezas del ingreso público —incluidos el
-  controlador NGINX y la integración con ALB— y la ruta de autenticación.
-  También falta completar las políticas de disponibilidad solicitadas para
-  los microservicios.
+  pedidos y eventos. Se añadieron la ruta de autenticación, configuración para
+  instalar NGINX Ingress y ALB, y políticas HPA/PDB y distribución por zona.
+  La instalación de los controladores, la publicación de imágenes y la
+  validación en un clúster AWS siguen pendientes.
 
 `DEPLOYMENT_GUIDE.md` conserva instrucciones de una versión anterior basada
 en el backend monolítico y el frontend servido desde Kubernetes. No debe
