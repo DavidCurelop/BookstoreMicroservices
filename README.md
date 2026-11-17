@@ -13,6 +13,12 @@ del curso, en este caso, para el proyecto final de la materia.
 .
 ├── frontend/
 ├── backend/
+├── services/
+│   ├── ms-auth/
+│   ├── ms-books/
+│   ├── ms-orders/
+│   └── ms-events/
+├── kubernetes/
 ├── database/
 │   ├── schema.sql
 │   ├── seed.sql
@@ -24,10 +30,17 @@ del curso, en este caso, para el proyecto final de la materia.
 Los principales componentes corresponden a:
 
 - `frontend/`: aplicación web y configuración de Nginx (`frontend/nginx/`);
-- `backend/`: API y lógica de la aplicación;
+- `backend/`: API monolítica usada por el entorno local de Docker Compose;
+- `services/`: implementaciones separadas de autenticación, catálogo, pedidos
+  y eventos;
+- `kubernetes/`: servicios, deployments y rutas de ingreso para el despliegue
+  de microservicios en EKS;
 - `database/`: esquema, datos iniciales y artefactos relacionados con PostgreSQL;
-- `compose.yaml`: entorno local completo (PostgreSQL, inicialización de la base
-  de datos, backend y frontend).
+- `compose.yaml`: entorno local con PostgreSQL, inicialización de la base de
+  datos, backend monolítico y frontend.
+
+El entorno local de Docker Compose sigue usando el backend monolítico. No
+despliega los cuatro servicios de `services/` ni equivale al entorno de EKS.
 
 ## Configuración
 
@@ -131,6 +144,9 @@ Las imágenes del backend y del frontend se publican como **multiplataforma**
 (Graviton) sin importar el equipo donde se construyeron. El nombre de cada
 imagen se forma con dos variables del `.env`:
 
+Esta sección cubre las imágenes del backend monolítico y del frontend usados
+por Docker Compose. No publica las imágenes de `services/` para EKS.
+
 ```text
 ${IMAGE_REGISTRY}/bookstore-backend:${IMAGE_TAG}
 ${IMAGE_REGISTRY}/bookstore-frontend:${IMAGE_TAG}
@@ -203,6 +219,47 @@ database/rds/bootstrap.sh
 
 Las instrucciones de configuración y ejecución correspondientes se encuentran
 en las guías de laboratorio.
+
+### Estado de la arquitectura de microservicios
+
+Los manifiestos de `kubernetes/` y el código de `services/` son la base del
+despliegue de microservicios. Los servicios usan estos puertos:
+
+| Servicio | Puerto | Responsabilidad |
+|----------|--------|-----------------|
+| `ms-auth` | 5001 | Autenticación |
+| `ms-books` | 5002 | Catálogo y stock |
+| `ms-orders` | 5003 | Pedidos |
+| `ms-events` | 5004 | Ingesta de eventos y escritura en EFS |
+
+El estado de los tres issues de infraestructura abiertos es:
+
+- [US-06: sidecar de clickstream](https://github.com/DavidCurelop/BookstoreMicroservices/issues/6):
+  los deployments ya montan volúmenes `emptyDir` para los logs de varios
+  servicios y `ms-events` tiene un endpoint interno de ingesta. Aún faltan los
+  contenedores sidecar, la rotación de archivos y el envío con reintentos.
+- [US-07: S3, Cloudflare y WAF](https://github.com/DavidCurelop/BookstoreMicroservices/issues/7):
+  pendiente. El repositorio no contiene la configuración de S3 ni las reglas
+  de Cloudflare descritas en el issue.
+- [US-08: ALB, NGINX Ingress y alta disponibilidad](https://github.com/DavidCurelop/BookstoreMicroservices/issues/8):
+  hay deployments y servicios de Kubernetes, además de rutas para libros,
+  pedidos y eventos. Faltan piezas del ingreso público —incluidos el
+  controlador NGINX y la integración con ALB— y la ruta de autenticación.
+  También falta completar las políticas de disponibilidad solicitadas para
+  los microservicios.
+
+`DEPLOYMENT_GUIDE.md` conserva instrucciones de una versión anterior basada
+en el backend monolítico y el frontend servido desde Kubernetes. No debe
+tomarse como una guía completa para desplegar la arquitectura de microservicios
+ni como evidencia de que los recursos de AWS o Cloudflare ya están configurados.
+
+Para completar el despliegue, conviene resolver primero el ingreso a los
+servicios y la disponibilidad en EKS (US-08). El trabajo del sidecar (US-06)
+puede avanzar en paralelo, pero debe mantener el formato de eventos existente
+y evitar que el manejo de solicitudes de negocio dependa de escrituras remotas
+a EFS. La publicación del frontend en S3 y el enrutamiento de `/api/*` por
+Cloudflare (US-07) debe configurarse cuando el endpoint público de la API esté
+definido.
 
 ## Requisitos
 
