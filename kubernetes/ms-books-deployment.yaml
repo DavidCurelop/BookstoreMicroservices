@@ -7,6 +7,21 @@
 #
 # /internal/books/* is for in-cluster callers (ms-orders) through the Services
 # below and is NOT exposed by the Ingress.
+#
+# ms-books (all versions) is the stable in-cluster name ms-orders calls:
+# http://ms-books:5002/internal/books/{reserve,release}-stock
+apiVersion: v1
+kind: Service
+metadata:
+  name: ms-books
+spec:
+  type: ClusterIP
+  selector:
+    app: ms-books
+  ports:
+  - port: 5002
+    targetPort: 5002
+---
 apiVersion: v1
 kind: Service
 metadata:

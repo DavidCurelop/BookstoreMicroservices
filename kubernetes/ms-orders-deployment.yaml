@@ -1,0 +1,137 @@
+# ms-orders (US-04): orders & checkout microservice on :5003, orders schema only.
+#
+# Every pod runs a PgBouncer Ambassador container (transaction pooling) on
+# 127.0.0.1:5432. ms-orders connects to it over localhost, and PgBouncer
+# multiplexes those connections onto a small pool against RDS PostgreSQL, so
+# many pods/requests do not exhaust the RDS connection limit.
+#
+# Secrets:
+#   ms-orders-db  -> DB_HOST (RDS endpoint), DB_PORT, DB_NAME, DB_USER (ms_orders_role), DB_PASSWORD
+#   ms-auth-jwt   -> AUTH_JWT_SECRET (same value ms-auth signs with; JWT is validated locally)
+#
+# ms-orders calls http://ms-auth:5001 (customer check) and http://ms-books:5002
+# (reserve-stock / release-stock). /api/orders is the only public route
+# (ms-orders-ingress below).
+apiVersion: v1
+kind: Service
+metadata:
+  name: ms-orders
+spec:
+  type: ClusterIP
+  selector:
+    app: ms-orders
+  ports:
+  - port: 5003
+    targetPort: 5003
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ms-orders
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: ms-orders
+  template:
+    metadata:
+      labels:
+        app: ms-orders
+    spec:
+      topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: topology.kubernetes.io/zone
+        whenUnsatisfiable: ScheduleAnyway
+        labelSelector:
+          matchLabels: { app: ms-orders }
+      initContainers:
+      # Blocks the Node.js server until RDS is reachable and the orders schema
+      # is initialized and readable by ms_orders_role (direct to RDS, no PgBouncer yet).
+      - name: wait-for-db
+        image: postgres:17-alpine
+        envFrom:
+        - secretRef: { name: ms-orders-db }
+        command:
+        - sh
+        - -c
+        - |
+          until pg_isready -h "$DB_HOST" -p "${DB_PORT:-5432}" -U "$DB_USER" -d "$DB_NAME" && \
+            [ "$(PGPASSWORD="$DB_PASSWORD" psql -h "$DB_HOST" -p "${DB_PORT:-5432}" -U "$DB_USER" -d "$DB_NAME" -tAc \
+            "SELECT has_table_privilege(current_user, 'orders.orders', 'SELECT')")" = "t" ]; do
+            echo "Waiting for RDS PostgreSQL and orders schema initialization..."
+            sleep 2
+          done
+      containers:
+      - name: ms-orders
+        image: 950582354349.dkr.ecr.us-east-1.amazonaws.com/bookstore-ms-orders:8.1.0
+        ports:
+        - containerPort: 5003
+        envFrom:
+        - secretRef: { name: ms-orders-db }
+        env:
+        # env wins over envFrom: the app talks to the PgBouncer Ambassador, not to RDS
+        - { name: DB_HOST, value: "127.0.0.1" }
+        - { name: DB_PORT, value: "5432" }
+        - { name: DB_SSL, value: "false" }
+        - name: AUTH_JWT_SECRET
+          valueFrom:
+            secretKeyRef: { name: ms-auth-jwt, key: AUTH_JWT_SECRET }
+        - { name: NODE_ENV, value: "production" }
+        - { name: PORT, value: "5003" }
+        - { name: MS_AUTH_URL, value: "http://ms-auth:5001" }
+        - { name: MS_BOOKS_URL, value: "http://ms-books:5002" }
+        - { name: CLICKSTREAM_FILE_ENABLED, value: "true" }
+        - { name: CLICKSTREAM_FILE_PATH, value: "/var/log/clickstream/events.log" }
+        volumeMounts:
+        # Purchase events; shared with the Clickstream sidecar through the pod emptyDir
+        - { name: clickstream, mountPath: /var/log/clickstream }
+        resources:
+          requests: { cpu: 100m, memory: 256Mi }
+          limits: { memory: 512Mi }
+        readinessProbe:
+          httpGet: { path: /health, port: 5003 }
+        livenessProbe:
+          tcpSocket: { port: 5003 }
+      # Ambassador: 127.0.0.1:5432 -> RDS PostgreSQL Primary (:5432)
+      - name: pgbouncer
+        image: edoburu/pgbouncer:latest
+        ports:
+        - containerPort: 5432
+        envFrom:
+        # DB_HOST/DB_PORT/DB_NAME/DB_USER/DB_PASSWORD point to RDS for this container
+        - secretRef: { name: ms-orders-db }
+        env:
+        - { name: LISTEN_ADDR, value: "127.0.0.1" }
+        - { name: LISTEN_PORT, value: "5432" }
+        - { name: POOL_MODE, value: "transaction" }
+        - { name: AUTH_TYPE, value: "scram-sha-256" }
+        - { name: SERVER_TLS_SSLMODE, value: "require" }
+        - { name: MAX_CLIENT_CONN, value: "200" }
+        - { name: DEFAULT_POOL_SIZE, value: "10" }
+        resources:
+          requests: { cpu: 50m, memory: 64Mi }
+          limits: { memory: 128Mi }
+        readinessProbe:
+          tcpSocket: { port: 5432 }
+        livenessProbe:
+          tcpSocket: { port: 5432 }
+      volumes:
+      - name: clickstream
+        emptyDir: {}
+---
+# Public route: only /api/orders. ms-orders has no /internal endpoints.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ms-orders
+spec:
+  ingressClassName: nginx
+  rules:
+  - http:
+      paths:
+      - path: /api/orders
+        pathType: Prefix
+        backend:
+          service:
+            name: ms-orders
+            port: { number: 5003 }
