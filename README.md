@@ -234,34 +234,26 @@ despliegue de microservicios. Los servicios usan estos puertos:
 | `ms-orders` | 5003 | Pedidos |
 | `ms-events` | 5004 | Ingesta de eventos y escritura en EFS |
 
-El estado de los tres issues de infraestructura abiertos es:
+El estado de los tres issues de infraestructura es:
 
 - [US-06: sidecar de clickstream](https://github.com/DavidCurelop/BookstoreMicroservices/issues/6):
-  los deployments incluyen Fluent Bit, buffer local con rotación y envío con
-  reintentos a `ms-events`. Falta verificar el comportamiento en un clúster
-  EKS real y medir la entrega bajo fallos prolongados o presión de disco.
+  completado y validado en EKS; todos los pods ejecutan Fluent Bit junto a la
+  aplicación con buffer rotativo en `emptyDir`, envío con reintentos a
+  `ms-events:5004` y escritura sincronizada con bloqueo en EFS.
 - [US-07: S3, Cloudflare y WAF](https://github.com/DavidCurelop/BookstoreMicroservices/issues/7):
-  hay una base de Terraform para el bucket privado, permisos de lectura,
-  DNS, WAF y límites de solicitudes, además de un Worker para servir la SPA
-  y reenviar `/api/*` al ALB. Falta configurar las cuentas y dominios reales,
-  aplicar los recursos, proteger el acceso directo al ALB y validar el flujo
-  desplegado.
+  pendiente de despliegue del borde CDN/WAF. La SPA está publicada en Amazon S3
+  y los manifiestos de Nginx frontend fueron retirados de EKS, además de la base
+  de Terraform y el Worker en `infrastructure/frontend-edge/`. Falta configurar
+  una zona/token de Cloudflare, dominio y certificado ACM HTTPS para desplegar y
+  validar `CF-Cache-Status: HIT` y el WAF.
 - [US-08: ALB, NGINX Ingress y alta disponibilidad](https://github.com/DavidCurelop/BookstoreMicroservices/issues/8):
-  hay deployments y servicios de Kubernetes, además de rutas para libros,
-  pedidos y eventos. Se añadieron la ruta de autenticación, configuración para
-  instalar NGINX Ingress y ALB, y políticas HPA/PDB y distribución por zona.
-  La instalación de los controladores, la publicación de imágenes y la
-  validación en un clúster AWS siguen pendientes.
+  completado y validado en EKS con imágenes multiplataforma en ECR, AWS ALB
+  público hacia `ingress-nginx`, enrutamiento L7 (`/api/*` público, `/internal/*`
+  bloqueado), canario 90/10 en `ms-books`, HPA/PDB y distribución Multi-AZ.
 
-`DEPLOYMENT_GUIDE.md` conserva instrucciones de una versión anterior basada
-en el backend monolítico y el frontend servido desde Kubernetes. No debe
-tomarse como una guía completa para desplegar la arquitectura de microservicios
-ni como evidencia de que los recursos de AWS o Cloudflare ya están configurados.
-
-La configuración inicial de US-07 está en `infrastructure/frontend-edge/`.
-No se han aplicado recursos de AWS o Cloudflare; el despliegue requiere los
-dominios, la zona de Cloudflare y el hostname HTTPS del ALB correspondientes
-al entorno.
+Las secciones 1–3 de `DEPLOYMENT_GUIDE.md` cubren la infraestructura base
+(VPC, EFS, RDS, EKS) y las secciones 4–5 documentan el despliegue y desmontaje
+de microservicios, ALB, S3 y borde frontend.
 
 ## Requisitos
 

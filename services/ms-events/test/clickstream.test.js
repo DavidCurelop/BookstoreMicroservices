@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, readdir, rm } from "node:fs/promises";
+import { spawn } from "node:child_process";
+import { mkdtemp, readFile, readdir, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -99,6 +100,56 @@ test("rotates the local buffer and preserves sidecar log lines during ingestion"
     await readFile(efsFile, "utf8"),
     `${secondLine}\nschema_version=1 event_type=login\nschema_version=1 event_type=logout\n{"event_id":"structured-event"}\n`
   );
+});
+
+const writerModuleUrl = new URL("../logging/clickstreamFileWriter.js", import.meta.url).href;
+
+const runWriterWorker = (filePath, workerId, count) =>
+  new Promise((resolve, reject) => {
+    const script = `
+      const { initializeClickstreamFileWriter, writeClickstreamLines, closeClickstreamFileWriter } =
+        await import(${JSON.stringify(writerModuleUrl)});
+      await initializeClickstreamFileWriter();
+      for (let i = 0; i < ${count}; i += 1) {
+        await writeClickstreamLines([\`schema_version=1 worker=${workerId} seq=\${i}\`]);
+      }
+      await closeClickstreamFileWriter();
+    `;
+    const child = spawn(process.execPath, ["--input-type=module", "-e", script], {
+      env: { ...process.env, CLICKSTREAM_FILE_PATH: filePath },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stderr = "";
+    child.stderr.on("data", (chunk) => {
+      stderr += chunk.toString();
+    });
+    child.on("error", reject);
+    child.on("close", (code) => {
+      if (code === 0) {
+        resolve();
+      } else {
+        reject(new Error(`worker ${workerId} exited ${code}: ${stderr}`));
+      }
+    });
+  });
+
+test("serializes concurrent multi-process appends without NUL bytes and recovers stale locks", async () => {
+  const sharedFile = join(temporaryDirectory, "efs", "shared-concurrent.log");
+  const lockFile = `${sharedFile}.lock`;
+  await writeFile(lockFile, "");
+  const staleTime = new Date(Date.now() - 30_000);
+  await utimes(lockFile, staleTime, staleTime);
+
+  await Promise.all([
+    runWriterWorker(sharedFile, "az-a", 20),
+    runWriterWorker(sharedFile, "az-b", 20),
+  ]);
+
+  const raw = await readFile(sharedFile);
+  assert.equal(raw.includes(0), false, "shared log must not contain NUL bytes");
+  const lines = raw.toString("utf8").trim().split("\n");
+  assert.equal(lines.length, 40);
+  assert.equal(new Set(lines).size, 40);
 });
 
 test.after(async () => {

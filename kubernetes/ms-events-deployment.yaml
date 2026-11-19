@@ -45,9 +45,11 @@ spec:
         whenUnsatisfiable: DoNotSchedule
         labelSelector:
           matchLabels: { app: ms-events }
+        matchLabelKeys: [pod-template-hash]
       containers:
       - name: ms-events
         image: 950582354349.dkr.ecr.us-east-1.amazonaws.com/bookstore-ms-events:8.1.0
+        imagePullPolicy: Always
         ports:
         - containerPort: 5004
         env:
