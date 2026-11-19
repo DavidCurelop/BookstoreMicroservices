@@ -41,6 +41,7 @@ spec:
         whenUnsatisfiable: DoNotSchedule
         labelSelector:
           matchLabels: { app: ms-auth }
+        matchLabelKeys: [pod-template-hash]
       initContainers:
       # Blocks the Node.js server until RDS is reachable and the auth schema
       # is initialized and readable by ms_auth_role.

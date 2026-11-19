@@ -47,6 +47,7 @@ spec:
         whenUnsatisfiable: DoNotSchedule
         labelSelector:
           matchLabels: { app: ms-orders }
+        matchLabelKeys: [pod-template-hash]
       initContainers:
       # Blocks the Node.js server until RDS is reachable and the orders schema
       # is initialized and readable by ms_orders_role (direct to RDS, no PgBouncer yet).
@@ -113,10 +114,13 @@ spec:
         resources:
           requests: { cpu: 50m, memory: 64Mi }
           limits: { memory: 128Mi }
+        # Kubelet tcpSocket probes hit the Pod IP and fail against LISTEN_ADDR=127.0.0.1.
         readinessProbe:
-          tcpSocket: { port: 5432 }
+          exec:
+            command: ["pg_isready", "-h", "127.0.0.1", "-p", "5432"]
         livenessProbe:
-          tcpSocket: { port: 5432 }
+          exec:
+            command: ["pg_isready", "-h", "127.0.0.1", "-p", "5432"]
       - name: clickstream-sidecar
         image: fluent/fluent-bit:3.2.10
         args: ["--config=/fluent-bit/etc/fluent-bit.conf"]

@@ -73,6 +73,7 @@ spec:
         whenUnsatisfiable: DoNotSchedule
         labelSelector:
           matchLabels: { app: ms-books, version: v1 }
+        matchLabelKeys: [pod-template-hash]
       initContainers:
       # Blocks the Node.js server until RDS is reachable and the books schema
       # is initialized and readable by ms_books_role.
@@ -152,7 +153,7 @@ kind: Deployment
 metadata:
   name: ms-books-v2
 spec:
-  replicas: 1
+  replicas: 2
   selector:
     matchLabels:
       app: ms-books
@@ -172,6 +173,7 @@ spec:
         whenUnsatisfiable: DoNotSchedule
         labelSelector:
           matchLabels: { app: ms-books, version: v2 }
+        matchLabelKeys: [pod-template-hash]
       initContainers:
       - name: wait-for-db
         image: postgres:17-alpine

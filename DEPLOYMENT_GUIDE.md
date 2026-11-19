@@ -424,7 +424,7 @@ kubectl rollout status deployment/ms-books-v1
 kubectl rollout status deployment/ms-books-v2
 kubectl rollout status deployment/ms-orders
 kubectl rollout status deployment/ms-events
-kubectl get ingress bookstore-public
+kubectl get ingress bookstore-public -n ingress-nginx
 ```
 
 The ALB hostname appears in the `ADDRESS` column after the AWS Load Balancer
@@ -441,9 +441,11 @@ sidecar mounts that directory read-only, tracks file offsets in its
 `clickstream-state` volume, and forwards batches to the internal
 `ms-events:5004/internal/events/ingest` endpoint. Fluent Bit keeps retrying
 failed deliveries and stores pending chunks on the state volume. The events
-service appends accepted lines to EFS. Its own public behavior events also
-pass through a local buffer and sidecar; internal ingestion requests are not
-written to that buffer, so they cannot create a forwarding loop.
+service appends accepted lines to EFS using a shared lock file and synced
+append/close per batch so replicas across AZs do not overwrite each other.
+Its own public behavior events also pass through a local buffer and sidecar;
+internal ingestion requests are not written to that buffer, so they cannot
+create a forwarding loop.
 
 The application writers rotate the active file at 10 MiB and retain up to
 five rotated files per pod. The sidecar tails the active and rotated paths.
@@ -468,6 +470,37 @@ The EFS file should contain the original access-log lines, including
 Delivery is at least once: a retry after a network timeout can append a
 duplicate line if the receiver stored the batch but its response did not
 reach the sidecar.
+
+### 4.5 Teardown microservices, ALB, S3, and ECR
+
+Delete Kubernetes Ingresses first so the AWS Load Balancer Controller removes
+the public ALB before deleting the EKS cluster (Section 3, Steps 2–6):
+
+```powershell
+kubectl delete -f kubernetes/public-alb-ingress.yaml --ignore-not-found
+kubectl delete -f kubernetes/alb-ingress-class.yaml --ignore-not-found
+kubectl delete -f kubernetes/ms-autoscaling.yaml --ignore-not-found
+kubectl delete -f kubernetes/ms-events-ingress.yaml --ignore-not-found
+kubectl delete -f kubernetes/ms-books-ingress.yaml --ignore-not-found
+kubectl delete -f kubernetes/ms-auth-ingress.yaml --ignore-not-found
+kubectl delete -f kubernetes/ms-events-deployment.yaml --ignore-not-found
+kubectl delete -f kubernetes/ms-orders-deployment.yaml --ignore-not-found
+kubectl delete -f kubernetes/ms-books-deployment.yaml --ignore-not-found
+kubectl delete -f kubernetes/ms-auth-deployment.yaml --ignore-not-found
+kubectl delete -f kubernetes/clickstream-sidecar-config.yaml --ignore-not-found
+kubectl delete -f kubernetes/logs-pvc.yaml --ignore-not-found
+kubectl delete secret ms-auth-db ms-books-db ms-orders-db ms-auth-jwt --ignore-not-found
+helm uninstall ingress-nginx --namespace ingress-nginx
+
+# Empty and remove the frontend S3 bucket (skip if managed via Terraform destroy in Section 5)
+aws s3 rm "s3://bookstore-frontend-$accountId" --recursive
+aws s3api delete-bucket --bucket "bookstore-frontend-$accountId"
+
+# Delete microservice ECR repositories
+foreach ($service in @("ms-auth", "ms-books", "ms-orders", "ms-events")) {
+    aws ecr delete-repository --repository-name "bookstore-$service" --force
+}
+```
 
 ## 5. Frontend edge deployment
 
